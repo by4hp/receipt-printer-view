@@ -9,13 +9,15 @@ import SwiftUI
 
 struct ContentView: View {
     var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
+        ZStack {
+            // 背景色 - 浅灰色背景增强打印机的立体感
+            Color.gray.opacity(0.1)
+                .ignoresSafeArea()
+            
+            // 打印机收据视图
+            ReceiptPrinterView()
+                .padding()
         }
-        .padding()
     }
 }
 
