@@ -6,11 +6,72 @@
 //
 
 import SwiftUI
+import CoreHaptics
 
 struct ReceiptPrinterView: View {
     // 添加状态变量来控制收据的显示状态
     @State private var receiptOffset: CGFloat = -510
     @State private var isBlinking: Bool = false
+    
+    // 震动引擎
+    @State private var engine: CHHapticEngine?
+    
+    // 准备震动引擎
+    func prepareHaptics() {
+        guard CHHapticEngine.capabilitiesForHardware().supportsHaptics else { return }
+        
+        do {
+            engine = try CHHapticEngine()
+            try engine?.start()
+        } catch {
+            print("创建震动引擎失败: \(error.localizedDescription)")
+        }
+    }
+    
+    // 简单震动
+    func simpleSuccess() {
+        let generator = UIImpactFeedbackGenerator(style: .light)
+        generator.impactOccurred()
+    }
+    
+    // 中等强度震动
+    func mediumSuccess() {
+        let generator = UIImpactFeedbackGenerator(style: .medium)
+        generator.impactOccurred()
+    }
+    
+    // 复杂震动模式
+    func complexSuccess() {
+        guard CHHapticEngine.capabilitiesForHardware().supportsHaptics else { return }
+        
+        var events = [CHHapticEvent]()
+        
+        // 创建强度和锐度曲线
+        let intensity = CHHapticEventParameter(parameterID: .hapticIntensity, value: 1.0)
+        let sharpness = CHHapticEventParameter(parameterID: .hapticSharpness, value: 1.0)
+        let decay = CHHapticEventParameter(parameterID: .decayTime, value: 0.2)
+        
+        // 创建事件
+        let event = CHHapticEvent(eventType: .hapticTransient, parameters: [intensity, sharpness, decay], relativeTime: 0)
+        events.append(event)
+        
+        // 连续震动
+        for i in stride(from: 0.1, to: 0.3, by: 0.05) {
+            let intensity = CHHapticEventParameter(parameterID: .hapticIntensity, value: Float(0.8))
+            let sharpness = CHHapticEventParameter(parameterID: .hapticSharpness, value: Float(0.5))
+            
+            let event = CHHapticEvent(eventType: .hapticTransient, parameters: [intensity, sharpness], relativeTime: i)
+            events.append(event)
+        }
+        
+        do {
+            let pattern = try CHHapticPattern(events: events, parameters: [])
+            let player = try engine?.makePlayer(with: pattern)
+            try player?.start(atTime: 0)
+        } catch {
+            print("播放震动失败: \(error.localizedDescription)")
+        }
+    }
     
     var body: some View {
         ZStack {
@@ -20,6 +81,9 @@ struct ReceiptPrinterView: View {
                     .onTapGesture(count: 1, perform: {
                         // 点击时开始打印动画
                         receiptOffset = -510 // 先将收据隐藏在打印机内
+                        
+                        // 开始震动反馈
+                        complexSuccess()
                         
                         // 开始闪烁状态灯
                         withAnimation(.easeInOut(duration: 0.3).repeatForever()) {
@@ -31,20 +95,45 @@ struct ReceiptPrinterView: View {
                             receiptOffset = -450 // 开始出来一点
                         }
                         
+                        // 第一次震动
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                            simpleSuccess()
+                        }
+                        
                         withAnimation(.easeInOut(duration: 1.2).delay(1.0)) {
                             receiptOffset = -400 // 继续出来
+                        }
+                        
+                        // 第二次震动
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                            simpleSuccess()
                         }
                         
                         withAnimation(.easeInOut(duration: 1.3).delay(1.5)) {
                             receiptOffset = -350 // 继续出来
                         }
                         
+                        // 第三次震动
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                            simpleSuccess()
+                        }
+                        
                         withAnimation(.easeInOut(duration: 1.4).delay(2.5)) {
                             receiptOffset = -200 // 出来更多
                         }
                         
+                        // 第四次震动
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                            mediumSuccess()
+                        }
+                        
                         withAnimation(.easeOut(duration: 2).delay(3.5)) {
                             receiptOffset = -20 // 最终位置
+                        }
+                        
+                        // 最后一次震动，打印完成
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
+                            complexSuccess()
                         }
                         
                         // 打印完成后停止闪烁
@@ -76,6 +165,9 @@ struct ReceiptPrinterView: View {
             .allowsHitTesting(false)
         }
         .frame(maxWidth: 350)
+        .onAppear {
+            prepareHaptics()
+        }
     }
 }
 
@@ -112,8 +204,8 @@ struct PrinterHead: View {
                 // 内部黑色梯形出纸口 - 可点击区域
                 Trapezoid()
                     .fill(Color.black.opacity(0.8))
-                    .frame(width: 335, height: 8)
-                    .offset(y: 8) // 将梯形下移
+                    .frame(width: 350, height: 10)
+                    .offset(y: 6) // 将梯形下移
             }
             .offset(y: 25) // 向下偏移，使其突出打印机头部
             
@@ -158,8 +250,9 @@ struct PrinterHead: View {
                             .fill(Color.green.opacity(isBlinking ? 0.8 : 0.3))
                             .frame(width: 6, height: 6)
                     }
-                    .padding(.trailing, 20)
+                    .padding(.trailing, 20) // 添加右侧填充，使状态灯保持一定的距离
                 }
+                .offset(y:20)
             }
         }
         .padding(.bottom, 30) // 添加底部填充，为出纸口留出空间
