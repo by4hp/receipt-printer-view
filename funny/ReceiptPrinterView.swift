@@ -10,16 +10,21 @@ import SwiftUI
 struct ReceiptPrinterView: View {
     // 添加状态变量来控制收据的显示状态
     @State private var receiptOffset: CGFloat = -510
+    @State private var isBlinking: Bool = false
     
     var body: some View {
         ZStack {
             // 打印机头部 - 灰色金属质感，有立体阴影，始终固定在顶部
             VStack {
-                PrinterHead()
-                    .contentShape(Rectangle()) // 确保整个区域可点击
-                    .onTapGesture {
+                PrinterHead(isBlinking: isBlinking)
+                    .onTapGesture(count: 1, perform: {
                         // 点击时开始打印动画
                         receiptOffset = -510 // 先将收据隐藏在打印机内
+                        
+                        // 开始闪烁状态灯
+                        withAnimation(.easeInOut(duration: 0.3).repeatForever()) {
+                            isBlinking = true
+                        }
                         
                         // 使用延迟和多步动画来创建打印效果
                         withAnimation(.easeInOut(duration: 1.0).delay(0.2)) {
@@ -41,7 +46,14 @@ struct ReceiptPrinterView: View {
                         withAnimation(.easeOut(duration: 2).delay(3.5)) {
                             receiptOffset = -20 // 最终位置
                         }
-                    }
+                        
+                        // 打印完成后停止闪烁
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 5.5) {
+                            withAnimation {
+                                isBlinking = false
+                            }
+                        }
+                    })
                 
                 Spacer() // 使打印机始终保持在顶部
             }
@@ -61,6 +73,7 @@ struct ReceiptPrinterView: View {
                     .offset(y: 13) // 整体下移
             )
             .zIndex(3)
+            .allowsHitTesting(false)
         }
         .frame(maxWidth: 350)
     }
@@ -68,6 +81,7 @@ struct ReceiptPrinterView: View {
 
 // 打印机头部组件
 struct PrinterHead: View {
+    var isBlinking: Bool
     var body: some View {
         ZStack(alignment: .bottom) {
             // 出纸口 - 置于底部（放在前面使其显示在下层）
@@ -135,13 +149,13 @@ struct PrinterHead: View {
                     // 状态灯
                     HStack(spacing: 3) {
                         Circle()
-                            .fill(Color.green)
+                            .fill(Color.green.opacity(1.0))
                             .frame(width: 6, height: 6)
                         Circle()
-                            .fill(Color.green.opacity(0.6))
+                            .fill(Color.green.opacity(isBlinking ? 0.2 : 0.6))
                             .frame(width: 6, height: 6)
                         Circle()
-                            .fill(Color.green.opacity(0.3))
+                            .fill(Color.green.opacity(isBlinking ? 0.8 : 0.3))
                             .frame(width: 6, height: 6)
                     }
                     .padding(.trailing, 20)
