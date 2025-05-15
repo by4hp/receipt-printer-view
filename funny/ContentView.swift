@@ -11,7 +11,7 @@ struct ContentView: View {
     var body: some View {
         ZStack {
             // 背景色 - 浅灰色背景增强打印机的立体感
-            Color.gray.opacity(0.1)
+            Color.white
                 .ignoresSafeArea()
             
             // 打印机收据视图
