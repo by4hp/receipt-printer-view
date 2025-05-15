@@ -8,13 +8,59 @@
 import SwiftUI
 
 struct ReceiptPrinterView: View {
+    // 添加状态变量来控制收据的显示状态
+    @State private var receiptOffset: CGFloat = -510
+    
     var body: some View {
-        VStack(spacing: 0) {
-            // 打印机头部 - 灰色金属质感，有立体阴影
-            PrinterHead()
+        ZStack {
+            // 打印机头部 - 灰色金属质感，有立体阴影，始终固定在顶部
+            VStack {
+                PrinterHead()
+                    .contentShape(Rectangle()) // 确保整个区域可点击
+                    .onTapGesture {
+                        // 点击时开始打印动画
+                        receiptOffset = -510 // 先将收据隐藏在打印机内
+                        
+                        // 使用延迟和多步动画来创建打印效果
+                        withAnimation(.easeInOut(duration: 1.0).delay(0.2)) {
+                            receiptOffset = -450 // 开始出来一点
+                        }
+                        
+                        withAnimation(.easeInOut(duration: 1.2).delay(1.0)) {
+                            receiptOffset = -400 // 继续出来
+                        }
+                        
+                        withAnimation(.easeInOut(duration: 1.3).delay(1.5)) {
+                            receiptOffset = -350 // 继续出来
+                        }
+                        
+                        withAnimation(.easeInOut(duration: 1.4).delay(2.5)) {
+                            receiptOffset = -200 // 出来更多
+                        }
+                        
+                        withAnimation(.easeOut(duration: 2).delay(3.5)) {
+                            receiptOffset = -20 // 最终位置
+                        }
+                    }
+                
+                Spacer() // 使打印机始终保持在顶部
+            }
+            .zIndex(1) // 打印机头部在中间层
             
-            // 收据纸张
-            ReceiptPaper()
+            // 收据纸张 - 放在最上层
+            // 创建一个裁剪区域，只显示出纸口下方的部分
+            ZStack(alignment: .top) {
+                    ReceiptPaper()
+                        .frame(width: 300)
+                        .offset(y: receiptOffset)
+            }
+            .frame(width: 350, height: 600)
+            .mask(
+                Rectangle()
+                    .frame(width: 350, height: 600)
+                    .offset(y: 13) // 整体下移
+            )
+            .zIndex(3)
         }
         .frame(maxWidth: 350)
     }
@@ -28,7 +74,17 @@ struct PrinterHead: View {
             ZStack {
                 // 外部灰色框架
                 RoundedRectangle(cornerRadius: 15)
-                    .fill(Color(hex: "DDDADA"))
+                    .fill(
+                        LinearGradient(
+                            gradient: Gradient(stops: [
+                                .init(color: Color(hex: "EEEEEE"), location: 0.0),
+                                .init(color: Color(hex: "DDDADA"), location: 0.5),
+                                .init(color: Color(hex: "C5C5C5"), location: 1.0)
+                            ]),
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
                     .frame(width: 340, height: 40)
                     .cornerRadius(5)
                     .shadow(color: Color.black.opacity(0.3), radius: 3, x: 0, y: 2)
@@ -39,7 +95,7 @@ struct PrinterHead: View {
                             .cornerRadius(5)
                     )
                 
-                // 内部黑色梯形出纸口
+                // 内部黑色梯形出纸口 - 可点击区域
                 Trapezoid()
                     .fill(Color.black.opacity(0.8))
                     .frame(width: 335, height: 8)
@@ -50,22 +106,22 @@ struct PrinterHead: View {
             // 打印机头部主体
             ZStack(alignment: .leading) {
                 // 打印机头部背景 - 灰色金属质感
-                RoundedRectangle(cornerRadius: 20)
-                    .fill(
-                        LinearGradient(
-                            gradient: Gradient(stops: [
-                                .init(color: Color(hex: "BABABA"), location: 0.0),
-                                .init(color: Color(hex: "C5C5C5"), location: 0.59),
-                                .init(color: Color(hex: "FFFFFF"), location: 0.77),
-                                .init(color: Color(hex: "C5C5C5"), location: 0.87),
-                                .init(color: Color(hex: "A1A1A1"), location: 1.0)
-                            ]),
-                            startPoint: .bottom,
-                            endPoint: .top
+                    RoundedRectangle(cornerRadius: 20)
+                        .fill(
+                            LinearGradient(
+                                gradient: Gradient(stops: [
+                                    .init(color: Color(hex: "BABABA"), location: 0.0),
+                                    .init(color: Color(hex: "C5C5C5"), location: 0.59),
+                                    .init(color: Color(hex: "FFFFFF"), location: 0.77),
+                                    .init(color: Color(hex: "C5C5C5"), location: 0.87),
+                                    .init(color: Color(hex: "A1A1A1"), location: 1.0)
+                                ]),
+                                startPoint: .bottom,
+                                endPoint: .top
+                            )
                         )
-                    )
-                    .frame(height: 80)
-                    .shadow(color: Color.black.opacity(0.3), radius: 5, x: 0, y: 2)
+                        .frame(height: 90)
+                        .shadow(color: Color.black.opacity(0.6), radius: 5, x: 0, y: 2)
                 
                 HStack {
                     // 品牌标识
