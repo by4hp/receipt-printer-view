@@ -8,16 +8,131 @@
 import SwiftUI
 import CoreHaptics
 
+// 收据数据模型
+struct ReceiptData: Identifiable {
+    var id = UUID()
+    var title: String
+    var date: Date
+    var items: [ReceiptItemData]
+    var total: Double
+    var quote: String
+    var author: String
+    
+    // 生成随机收据
+    static func random() -> ReceiptData {
+        // 随机标题
+        let titles = ["日常消费", "工作费用", "创意项目", "技术学习", "生活体验"]
+        
+        // 随机项目
+        let allItems = [
+            ReceiptItemData(name: "SwiftUI 设计", price: Double.random(in: 99...399)),
+            ReceiptItemData(name: "UI 动画实现", price: Double.random(in: 99...399)),
+            ReceiptItemData(name: "高级手势处理", price: Double.random(in: 99...399)),
+            ReceiptItemData(name: "震动反馈集成", price: Double.random(in: 99...399)),
+            ReceiptItemData(name: "组件化开发", price: Double.random(in: 99...399)),
+            ReceiptItemData(name: "数据流管理", price: Double.random(in: 99...399)),
+            ReceiptItemData(name: "手势交互设计", price: Double.random(in: 99...399)),
+            ReceiptItemData(name: "定制动画效果", price: Double.random(in: 99...399)),
+            ReceiptItemData(name: "界面原型设计", price: Double.random(in: 99...399)),
+            ReceiptItemData(name: "用户体验优化", price: Double.random(in: 99...399)),
+            ReceiptItemData(name: "性能调优分析", price: Double.random(in: 99...399)),
+            ReceiptItemData(name: "设计系统集成", price: Double.random(in: 99...399))
+        ]
+        
+        // 随机选择 2-5 个项目
+        let itemCount = Int.random(in: 2...5)
+        let selectedItems = Array(allItems.shuffled().prefix(itemCount))
+        
+        // 计算总价
+        let total = selectedItems.reduce(0) { $0 + $1.price }
+        
+        // 随机名言
+        let quotes = [
+            "保持简约，专注本质",
+            "设计就是如何工作的",
+            "创新来自于不同角度的思考",
+            "简单比复杂更难",
+            "细节决定成败",
+            "每一个像素都很重要"
+        ]
+        
+        return ReceiptData(
+            title: titles.randomElement() ?? "随机收据",
+            date: Date(),
+            items: selectedItems,
+            total: total,
+            quote: quotes.randomElement() ?? "保持简约，专注本质",
+            author: "Steve Jobs"
+        )
+    }
+    
+    static var sample: ReceiptData {
+        ReceiptData(
+            title: "收据打印演示",
+            date: Date(),
+            items: [
+                ReceiptItemData(name: "SwiftUI 设计", price: 199.00),
+                ReceiptItemData(name: "UI 动画实现", price: 299.00),
+                ReceiptItemData(name: "高级手势处理", price: 159.00),
+                ReceiptItemData(name: "震动反馈集成", price: 99.00)
+            ],
+            total: 756.00,
+            quote: "保持简约，专注本质",
+            author: "Steve Jobs"
+        )
+    }
+    
+    static var sample2: ReceiptData {
+        ReceiptData(
+            title: "新的收据样例",
+            date: Date(),
+            items: [
+                ReceiptItemData(name: "组件化开发", price: 259.00),
+                ReceiptItemData(name: "数据流管理", price: 359.00),
+                ReceiptItemData(name: "手势交互设计", price: 189.00)
+            ],
+            total: 807.00,
+            quote: "设计就是如何工作的",
+            author: "Steve Jobs"
+        )
+    }
+}
+
+// 收据项目数据模型
+struct ReceiptItemData {
+    var name: String
+    var price: Double
+}
+
 struct ReceiptPrinterView: View {
     // 添加状态变量来控制收据的显示状态
-    @State private var receiptOffset: CGFloat = -500
+    @State private var receiptOffset: CGFloat = -500 // 初始默认值，会被实际计算值替换
     @State private var isBlinking: Bool = false
     @State private var isPrinted: Bool = false
     @State private var dragOffset: CGFloat = 0
+    @State private var currentReceiptIndex: Int = 0
     @State private var isDragging: Bool = false
-    
-    // 震动引擎
+    @State private var isLongPressed: Bool = false // 长按状态
+    @State private var showFullReceipt: Bool = false // 是否显示全屏收据
     @State private var engine: CHHapticEngine?
+    @State private var receiptHeight: CGFloat = 0 // 存储收据的实际高度
+    
+    // 收据数据数组
+    @State private var receipts: [ReceiptData] = [ReceiptData.sample, ReceiptData.sample2]
+    
+    // 添加一个方法来生成新的收据
+    private func generateNewReceipt() {
+        let newReceipt = ReceiptData.random()
+        receipts.append(newReceipt)
+    }
+    
+    // 计算初始偏移量（隐藏4/5的高度）
+    private var initialReceiptOffset: CGFloat {
+        if receiptHeight == 0 {
+            return -500 // 默认值，当高度还未测量时使用
+        }
+        return -receiptHeight * 4/5 // 向上偏移收据高度的4/5
+    }
     
     // 准备震动引擎
     func prepareHaptics() {
@@ -77,10 +192,9 @@ struct ReceiptPrinterView: View {
     }
     
     var body: some View {
-        ZStack {
+        ZStack(alignment: .top) {
             // 打印机头部 - 灰色金属质感，有立体阴影，始终固定在顶部
             VStack {
-                Spacer().frame(height: 30) // 增加到顶部的距离
                 PrinterHead(isBlinking: isBlinking)
                     .onTapGesture(count: 1, perform: {
                         // 如果已经打印出来，再次点击则收回
@@ -95,7 +209,7 @@ struct ReceiptPrinterView: View {
                             
                             // 快速收回收据
                             withAnimation(.easeIn(duration: 1.5)) {
-                                receiptOffset = -500 // 收回到打印机内
+                                receiptOffset = initialReceiptOffset // 使用计算的初始位置
                             }
                             
                             // 打印完成后停止闪烁
@@ -107,7 +221,7 @@ struct ReceiptPrinterView: View {
                             }
                         } else {
                             // 点击时开始打印动画
-                            receiptOffset = -500 // 先将收据隐藏在打印机内
+                            receiptOffset = initialReceiptOffset // 使用计算的初始位置
                             
                             // 开始闪烁状态灯
                             withAnimation(.linear(duration: 0.3).repeatForever()) {
@@ -121,7 +235,7 @@ struct ReceiptPrinterView: View {
                             
                             // 单一连续动画
                             withAnimation(.linear(duration: 5.0)) {
-                                receiptOffset = 55 // 直接设置最终位置
+                                receiptOffset = 0 // 直接设置最终位置
                             }
                             
                             // 打印过程中的震动效果
@@ -167,60 +281,151 @@ struct ReceiptPrinterView: View {
             // 收据纸张 - 放在最上层
             // 创建一个裁剪区域，只显示出纸口下方的部分
             ZStack(alignment: .top) {
-                    ReceiptPaper()
-                        .frame(width: 300)
-                        .offset(y: receiptOffset + dragOffset)
-                        .gesture(
-                            DragGesture()
-                                .onChanged { gesture in
-                                    isDragging = true
-                                    // 直接使用拖动的位移量，不限制范围
-                                    dragOffset = gesture.translation.height
+                // 使用回调函数直接获取 ReceiptPaper 的高度
+                ReceiptPaper(
+                    receiptData: receipts[currentReceiptIndex],
+                    onHeightChanged: { height in
+                        print("收据实际高度: \(height)")
+                        DispatchQueue.main.async {
+                            self.receiptHeight = height
+                            if !isPrinted {
+                                receiptOffset = initialReceiptOffset
+                            }
+                        }
+                    }
+                )
+                .padding(.bottom, 100)
+                .frame(maxWidth: .infinity)
+                .offset(y: receiptOffset + dragOffset)
+                // 添加长按手势
+                .onLongPressGesture(minimumDuration: 0.5) {
+                    if isPrinted {
+                        withAnimation(.spring()) {
+                            showFullReceipt = true
+                        }
+                        mediumSuccess() // 触发震动反馈
+                    }
+                }
+                .gesture(
+                    DragGesture()
+                        .onChanged { gesture in
+                            isDragging = true
+                            // 直接使用拖动的位移量，不限制范围
+                            dragOffset = gesture.translation.height
+                        }
+                        .onEnded { gesture in
+                            isDragging = false
+                            
+                            // 如果向下拖动超过一定距离，设置为已打印状态
+                            if !isPrinted && gesture.translation.height > 150 {
+                                withAnimation(.spring()) {
+                                    isPrinted = true
+                                    isBlinking = true
+                                    dragOffset = 0
+                                    receiptOffset = 0 // 完全显示收据
                                 }
-                                .onEnded { gesture in
-                                    isDragging = false
+                                
+                                // 模拟打印完成后的震动和闪烁停止
+                                mediumSuccess()
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                                    withAnimation {
+                                        isBlinking = false
+                                    }
+                                }
+                            }
+                            // 如果收据已经打印并且向下拖动超过一定距离，显示下一张收据
+                            else if isPrinted && gesture.translation.height > 150 {
+                                // 切换到下一张收据
+                                let nextIndex = (currentReceiptIndex + 1) % receipts.count
+                                
+                                // 重置状态并准备打印新收据
+                                withAnimation(.easeInOut) {
+                                    // 先收回当前收据
+                                    receiptOffset = initialReceiptOffset
+                                    dragOffset = 0
+                                    isPrinted = false
+                                }
+                                
+                                // 切换收据并触发打印
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                                    // 如果已经到了最后一张收据，生成新的收据
+                                    if nextIndex == receipts.count - 1 {
+                                        generateNewReceipt()
+                                    }
                                     
-                                    // 如果向下拖动超过一定距离，设置为已打印状态
-                                    if !isPrinted && gesture.translation.height > 150 {
-                                        withAnimation(.spring()) {
-                                            isPrinted = true
-                                            isBlinking = true
-                                            dragOffset = 0
-                                            receiptOffset = 55 // 直接设置为展开状态
-                                        }
-                                        
-                                        // 模拟打印完成后的震动和闪烁停止
-                                        mediumSuccess()
-                                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                                            withAnimation {
-                                                isBlinking = false
+                                    currentReceiptIndex = nextIndex
+                                    // 模拟点击打印机头部
+                                    withAnimation {
+                                        isBlinking = true
+                                    }
+                                    
+                                    // 震动反馈
+                                    simpleSuccess()
+                                    
+                                    // 单一连续动画
+                                    withAnimation(.linear(duration: 5.0)) {
+                                        receiptOffset = 0 // 直接设置最终位置
+                                    }
+                                    
+                                    // 打印过程中的震动效果
+                                    for i in 0..<10 {
+                                        DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.5) {
+                                            if i < 9 {
+                                                if i % 2 == 0 { // 间隔使用不同强度
+                                                    simpleSuccess()
+                                                } else {
+                                                    mediumSuccess()
+                                                }
+                                            } else {
+                                                // 结束时较强震动
+                                                mediumSuccess()
                                             }
                                         }
-                                    } 
-                                    // 如果向上拖动超过一定距离，收回收据
-                                    else if isPrinted && gesture.translation.height < -150 {
-                                        withAnimation(.spring()) {
-                                            isPrinted = false
-                                            dragOffset = 0
-                                            receiptOffset = -500 // 收回到打印机内
-                                        }
-                                        simpleSuccess()
                                     }
-                                    // 其他情况下回弹到当前状态
-                                    else {
-                                        withAnimation(.spring()) {
-                                            dragOffset = 0
+                                    
+                                    // 最后一次震动，打印完成
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
+                                        complexSuccess()
+                                    }
+                                    
+                                    // 打印完成后停止闪烁并更新状态
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 5.5) {
+                                        withAnimation {
+                                            isBlinking = false
+                                            isPrinted = true // 设置为已打印状态
                                         }
                                     }
                                 }
-                        )
+                                
+                                // 触发震动反馈
+                                mediumSuccess()
+                            }
+                            // 如果向上拖动超过一定距离，收回收据
+                            else if isPrinted && gesture.translation.height < -150 {
+                                withAnimation(.spring()) {
+                                    isPrinted = false
+                                    dragOffset = 0
+                                    receiptOffset = initialReceiptOffset // 使用计算的初始位置
+                                }
+                                simpleSuccess()
+                            }
+                            // 其他情况下回弹到当前状态
+                            else {
+                                withAnimation(.spring()) {
+                                    dragOffset = 0
+                                }
+                            }
+                        }
+                )
             }
-            .frame(width: 350, height: 800)
-            .mask(
-                Rectangle()
-                    .frame(width: 350, height: 700)
-                    .offset(y: 80) // 相对于出纸口位置下移20点
-            )
+            // .frame(width: 350)
+            .clipped()
+            .offset(y: 105)
+            // .mask(
+            //     Rectangle()
+            //         .frame(width: 350, height: 700)
+            //         .offset(y: 25) // 相对于出纸口位置下移20点
+            // )
             .zIndex(3)
             .allowsHitTesting(true) // 允许所有状态下都可以交互
         }
@@ -228,6 +433,61 @@ struct ReceiptPrinterView: View {
         .onAppear {
             prepareHaptics()
         }
+        .overlay(
+            // 调试信息，显示初始偏移量和收据高度
+            VStack {
+                Spacer()
+                Text("偏移量: \(Int(initialReceiptOffset))")
+                    .font(.system(size: 12))
+                    .foregroundColor(.black)
+                    .padding(4)
+                    .background(Color.white.opacity(0.7))
+                    .cornerRadius(4)
+                Text("收据高度: \(Int(receiptHeight))")
+                    .font(.system(size: 12))
+                    .foregroundColor(.black)
+                    .padding(4)
+                    .background(Color.white.opacity(0.7))
+                    .cornerRadius(4)
+            }
+            .padding(.bottom, 10)
+            , alignment: .bottom
+        )
+        // 全屏收据视图
+        .fullScreenCover(isPresented: $showFullReceipt, content: {
+            ZStack {
+                // 半透明背景
+                Color.black.opacity(0.5) // 降低不透明度以增强半透明效果
+                    .ignoresSafeArea()
+                
+                // 收据内容
+                VStack {
+                    // 关闭按钮
+                    HStack {
+                        Spacer()
+                        Button(action: {
+                            showFullReceipt = false
+                            simpleSuccess() // 简单震动反馈
+                        }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 30))
+                                .foregroundColor(.white)
+                                .padding()
+                        }
+                    }
+                    
+                    // 收据内容
+                    ScrollView {
+                        ReceiptPaper(receiptData: receipts[currentReceiptIndex], onHeightChanged: nil)
+                            .frame(width: 320)
+                            .padding()
+                    }
+                    .padding(.bottom)
+                }
+                .transition(.move(edge: .bottom))
+            }
+            .animation(.spring(), value: showFullReceipt)
+        })
     }
 }
 
@@ -235,7 +495,7 @@ struct ReceiptPrinterView: View {
 struct PrinterHead: View {
     var isBlinking: Bool
     var body: some View {
-        ZStack(alignment: .bottom) {
+        ZStack(alignment: .top) {
             // 出纸口 - 置于底部（放在前面使其显示在下层）
             ZStack {
                 // 外部灰色框架
@@ -264,13 +524,14 @@ struct PrinterHead: View {
                 // 内部黑色梯形出纸口 - 可点击区域
                 Trapezoid()
                     .fill(Color.black.opacity(0.8))
-                    .frame(width: 350, height: 10)
-                    .offset(y: 6) // 将梯形下移
+                    .frame(height: 10)
+                    .offset(y: 5)
+                
             }
-            .offset(y: 25) // 向下偏移，使其突出打印机头部
+            .offset(y: 80) // 向下偏移，使其突出打印机头部
             
             // 打印机头部主体
-            ZStack(alignment: .leading) {
+            ZStack(alignment: .bottom) {
                 // 打印机头部背景 - 灰色金属质感
                     RoundedRectangle(cornerRadius: 20)
                         .fill(
@@ -288,7 +549,6 @@ struct PrinterHead: View {
                         )
                         .frame(height: 90)
                         .shadow(color: Color.black.opacity(0.6), radius: 5, x: 0, y: 2)
-                
                 HStack {
                     // 品牌标识
                     Text("e-print")
@@ -320,60 +580,88 @@ struct PrinterHead: View {
                     }
                     .padding(.trailing, 20) // 添加右侧填充，使状态灯保持一定的距离
                 }
-                .offset(y:20)
+                .padding(.bottom, 10) // 添加右侧填充，使状态灯保持一定的距离
+                // .offset(y:20)
             }
         }
-        .padding(.bottom, 20) // 添加底部填充，为出纸口留出空间
     }
 }
 
 // 收据纸张组件
 struct ReceiptPaper: View {
-    // 格式化当前日期
-    func formattedDate() -> String {
+    // 收据数据
+    var receiptData: ReceiptData
+    // 添加一个回调函数来传递高度
+    var onHeightChanged: ((CGFloat) -> Void)? = nil
+    
+    // 格式化日期
+    func formattedDate(date: Date) -> String {
         let formatter = DateFormatter()
         formatter.dateStyle = .long
         formatter.timeStyle = .short
-        return formatter.string(from: Date())
+        return formatter.string(from: date)
+    }
+    
+    // 格式化价格
+    func formattedPrice(_ price: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencySymbol = "¥"
+        return formatter.string(from: NSNumber(value: price)) ?? "¥\(price)"
     }
     var body: some View {
         VStack(spacing: 0) {
-            // 收据内容
-            VStack(spacing: 15) {
-                // 成功图标
-                VStack(spacing: 5) {
-                    Image(systemName: "applelogo")
-                        .font(.system(size: 20))
-                        .foregroundColor(.black)
+            VStack(alignment: .leading, spacing: 5) {
+                // 收据标题
+                HStack {
+                    Spacer()
+                    Text(receiptData.title)
+                        .font(.system(size: 16, weight: .bold))
+                    Spacer()
                 }
-                .padding(.top, 20)
+                .padding(.top, 15)
+                .padding(.bottom, 5)
                 
-                // 标题和时间
-                VStack(spacing: 5) {
-                    Text(" Daily to Do List")
-                        .font(.system(size: 22, weight: .bold))
-                        .foregroundColor(.black)
+                // 日期和时间
+                HStack {
+                    Spacer()
+                    Text(formattedDate(date: receiptData.date))
+                        .font(.system(size: 12))
+                        .foregroundColor(.gray)
+                    Spacer()
+                }
+                .padding(.bottom, 10)
+                
+                // 分隔线
+                Rectangle()
+                    .frame(height: 1)
+                    .foregroundColor(.gray.opacity(0.3))
+                    .padding(.vertical, 5)
+                
+                // 收据项目
+                VStack(alignment: .leading, spacing: 8) {
+                    // 收据项目标题
+                    HStack {
+                        Text("项目")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(.black.opacity(0.7))
+                        Spacer()
+                        Text("价格")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(.black.opacity(0.7))
+                    }
+                    .padding(.bottom, 5)
                     
-                    Text(formattedDate())
-                        
-                        .font(.system(.subheadline, design: .monospaced))
-                        .foregroundColor(.gray.opacity(0.8))
+                    // 收据项目列表
+                    ForEach(receiptData.items.indices, id: \.self) { index in
+                        let item = receiptData.items[index]
+                        ReceiptItem(
+                            name: item.name,
+                            price: formattedPrice(item.price)
+                        )
+                    }
                 }
-                .padding(.bottom, 10)
-                
-                // 早晨
-                Text("早晨")
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundColor(.black)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.bottom, 5)
-                
-                VStack(spacing: 8) {
-                    ReceiptItem(name: "5:00", price: "喝一杯黑咖啡")
-                    ReceiptItem(name: "6:30", price: "空腹散步思考")
-                    ReceiptItem(name: "7:30", price: "挑一件黑领毛衣出门")
-                }
-                .padding(.bottom, 10)
+                .padding(.vertical, 10)
                 
                 // 分隔线
                 Rectangle()
@@ -381,39 +669,15 @@ struct ReceiptPaper: View {
                     .foregroundColor(.gray.opacity(0.3))
                     .padding(.vertical, 5)
                 
-                // 下午
-                Text("下午")
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundColor(.black)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.bottom, 5)
-                
-                VStack(spacing: 8) {
-                    ReceiptItem(name: "12:00", price: "与团队共进简单午餐")
-                    ReceiptItem(name: "14:00", price: "设计评审会议")
-                    ReceiptItem(name: "16:00", price: "与工程师一对一讨论")
+                // 总计
+                HStack {
+                    Text("总计")
+                        .font(.system(size: 15, weight: .bold))
+                    Spacer()
+                    Text(formattedPrice(receiptData.total))
+                        .font(.system(size: 15, weight: .bold))
                 }
-                .padding(.bottom, 10)
-                
-                // 分隔线
-                Rectangle()
-                    .frame(height: 1)
-                    .foregroundColor(.gray.opacity(0.3))
-                    .padding(.vertical, 5)
-                
-                // 晚上
-                Text("晚上")
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundColor(.black)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.bottom, 5)
-                
-                VStack(spacing: 8) {
-                    ReceiptItem(name: "18:00", price: "去塞纳河边散步")
-                    ReceiptItem(name: "19:30", price: "与家人共进素食晒餐")
-                    ReceiptItem(name: "21:00", price: "冷静思考产品未来")
-                }
-                .padding(.bottom, 15)
+                .padding(.vertical, 5)
                 
                 // 分隔线
                 Rectangle()
@@ -424,7 +688,7 @@ struct ReceiptPaper: View {
                 // 名言
                 HStack {
                     Spacer()
-                    Text("“保持简约，专注本质”")
+                    Text("“\(receiptData.quote)”")
                         .font(.system(size: 14, weight: .medium, design: .serif))
                         .italic()
                         .foregroundColor(.black.opacity(0.8))
@@ -435,7 +699,7 @@ struct ReceiptPaper: View {
                 // 签名
                 HStack {
                     Spacer()
-                    Text("— Steve Jobs")
+                    Text("— \(receiptData.author)")
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(.black.opacity(0.7))
                 }
@@ -451,10 +715,19 @@ struct ReceiptPaper: View {
             //     .frame(height: 20)
             //     .offset(y: )
         }
-        .frame(width: 300) // 设置收据纸张的宽度
+        .frame(maxWidth: 300) // 设置收据纸张的宽度
         .background(Color(hex: "F1EFEF"))
         .cornerRadius(2)
         .shadow(color: Color.black.opacity(0.1), radius: 5, x: 0, y: 5)
+        .background(
+            GeometryReader { geometry in
+                Color.clear
+                    .onAppear {
+                        // 在视图出现时传递高度信息
+                        onHeightChanged?(geometry.size.height)
+                    }
+            }
+        )
     }
 }
 
