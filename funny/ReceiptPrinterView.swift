@@ -105,10 +105,18 @@ struct ReceiptItemData {
 }
 
 struct ReceiptPrinterView: View {
+    // 收据状态枚举
+    enum ReceiptState {
+        case notPrinted       // 未打印
+        case printing        // 打印中
+        case printed         // 已打印
+        case completed       // 已完成（仅用于多收据场景）
+    }
+    
     // 添加状态变量来控制收据的显示状态
     @State private var receiptOffset: CGFloat = -500 // 初始默认值，会被实际计算值替换
     @State private var isBlinking: Bool = false
-    @State private var isPrinted: Bool = false
+    @State private var receiptState: ReceiptState = .notPrinted
     @State private var dragOffset: CGFloat = 0
     @State private var currentReceiptIndex: Int = 0
     @State private var isDragging: Bool = false
@@ -116,6 +124,25 @@ struct ReceiptPrinterView: View {
     @State private var showFullReceipt: Bool = false // 是否显示全屏收据
     @State private var engine: CHHapticEngine?
     @State private var receiptHeight: CGFloat = 0 // 存储收据的实际高度
+    @State private var printingProgress: CGFloat = 0 // 打印进度 (0-1)
+    @State private var printingSpeed: CGFloat = 1.0 // 打印速度倍率
+    @State private var printingTimer: Timer? = nil // 打印计时器
+    @State private var visibleReceipts: [VisibleReceipt] = [] // 当前可见的收据列表
+    
+    // 可见收据结构体，用于管理多张收据的状态
+    struct VisibleReceipt: Identifiable {
+        var id = UUID()
+        var data: ReceiptData
+        var state: ReceiptState
+        var offset: CGFloat
+        var dragOffset: CGFloat = 0
+        var zIndex: Double
+        
+        // 计算总偏移量
+        var totalOffset: CGFloat {
+            return offset + dragOffset
+        }
+    }
     
     // 收据数据数组
     @State private var receipts: [ReceiptData] = [ReceiptData.sample, ReceiptData.sample2]
@@ -124,6 +151,124 @@ struct ReceiptPrinterView: View {
     private func generateNewReceipt() {
         let newReceipt = ReceiptData.random()
         receipts.append(newReceipt)
+    }
+    
+    // 初始化可见收据
+    private func initializeVisibleReceipts() {
+        guard !receipts.isEmpty else { return }
+        
+        // 初始化第一张收据
+        let initialReceipt = VisibleReceipt(
+            data: receipts[0],
+            state: .notPrinted,
+            offset: initialReceiptOffset,
+            zIndex: 1.0
+        )
+        
+        visibleReceipts = [initialReceipt]
+    }
+    
+    // 开始打印当前收据
+    private func startPrinting() {
+        guard !visibleReceipts.isEmpty else { return }
+        
+        // 获取当前收据索引
+        guard let currentIndex = visibleReceipts.firstIndex(where: { $0.state == .notPrinted }) else { return }
+        
+        // 开始闪烁状态灯
+        withAnimation(.linear(duration: 0.3).repeatForever()) {
+            isBlinking = true
+        }
+        
+        // 初始震动
+        simpleSuccess()
+        
+        // 更新状态
+        visibleReceipts[currentIndex].state = .printing
+        printingProgress = 0
+        printingSpeed = 1.0
+        
+        // 创建定时器模拟打印过程
+        printingTimer?.invalidate()
+        printingTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [self] timer in
+            // 根据速度增加打印进度
+            printingProgress += 0.005 * printingSpeed
+            
+            // 计算偏移量
+            let newOffset = initialReceiptOffset + (receiptHeight + initialReceiptOffset) * printingProgress
+            
+            // 更新收据偏移量
+            withAnimation(.linear(duration: 0.05)) {
+                visibleReceipts[currentIndex].offset = newOffset
+            }
+            
+            // 根据打印进度触发震动
+            if Int(printingProgress * 100) % 10 == 0 {
+                if printingProgress < 0.3 {
+                    simpleSuccess() // 开始时轻微震动
+                } else if printingProgress < 0.8 {
+                    // 中间过程中等强度震动
+                    if Int(printingProgress * 100) % 20 == 0 {
+                        mediumSuccess()
+                    } else {
+                        simpleSuccess()
+                    }
+                } else {
+                    // 结束时较强震动
+                    mediumSuccess()
+                }
+            }
+            
+            // 打印完成
+            if printingProgress >= 1.0 {
+                timer.invalidate()
+                printingTimer = nil
+                complexSuccess()
+                
+                // 更新状态
+                visibleReceipts[currentIndex].state = .printed
+                
+                // 停止闪烁
+                withAnimation {
+                    isBlinking = false
+                }
+            }
+        }
+    }
+    
+    // 加速打印
+    private func speedUpPrinting() {
+        // 增加打印速度
+        printingSpeed = 3.0
+        mediumSuccess()
+    }
+    
+    // 添加新收据
+    private func addNewReceipt() {
+        // 确保有收据可用
+        if currentReceiptIndex >= receipts.count - 1 {
+            generateNewReceipt()
+        }
+        
+        // 获取下一张收据
+        let nextIndex = currentReceiptIndex + 1
+        currentReceiptIndex = nextIndex
+        
+        // 创建新收据
+        let newReceipt = VisibleReceipt(
+            data: receipts[nextIndex],
+            state: .notPrinted,
+            offset: initialReceiptOffset,
+            zIndex: 0.0 // 初始化为较低的z索引
+        )
+        
+        // 将当前收据的z索引提高
+        for i in 0..<visibleReceipts.count {
+            visibleReceipts[i].zIndex += 1
+        }
+        
+        // 添加新收据
+        visibleReceipts.append(newReceipt)
     }
     
     // 计算初始偏移量（隐藏4/5的高度）
@@ -197,79 +342,19 @@ struct ReceiptPrinterView: View {
             VStack {
                 PrinterHead(isBlinking: isBlinking)
                     .onTapGesture(count: 1, perform: {
-                        // 如果已经打印出来，再次点击则收回
-                        if isPrinted {
-                            // 收缩动画
-                            simpleSuccess() // 简单震动反馈
-                            
-                            // 开始闪烁状态灯
-                            withAnimation(.easeInOut(duration: 0.3).repeatForever()) {
-                                isBlinking = true
-                            }
-                            
-                            // 快速收回收据
-                            withAnimation(.easeIn(duration: 1.5)) {
-                                receiptOffset = initialReceiptOffset // 使用计算的初始位置
-                            }
-                            
-                            // 打印完成后停止闪烁
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.7) {
-                                withAnimation {
-                                    isBlinking = false
-                                    isPrinted = false
-                                }
-                            }
-                        } else {
-                            // 点击时开始打印动画
-                            receiptOffset = initialReceiptOffset // 使用计算的初始位置
-                            
-                            // 开始闪烁状态灯
-                            withAnimation(.linear(duration: 0.3).repeatForever()) {
-                                isBlinking = true
-                            }
-                            
-                            // 使用线性动画和震动效果
-                            
-                            // 初始震动
-                            simpleSuccess()
-                            
-                            // 单一连续动画
-                            withAnimation(.linear(duration: 5.0)) {
-                                receiptOffset = 0 // 直接设置最终位置
-                            }
-                            
-                            // 打印过程中的震动效果
-                            // 均匀分布震动效果
-                            for i in 1...10 {
-                                DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.5) {
-                                    // 根据进度调整震动强度
-                                    if i < 3 {
-                                        simpleSuccess() // 开始时轻微震动
-                                    } else if i < 8 {
-                                        // 中间过程中等强度震动
-                                        if i % 2 == 0 { // 间隔使用不同强度
-                                            simpleSuccess()
-                                        } else {
-                                            mediumSuccess()
-                                        }
-                                    } else {
-                                        // 结束时较强震动
-                                        mediumSuccess()
-                                    }
-                                }
-                            }
-                            
-                            // 最后一次震动，打印完成
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
-                                complexSuccess()
-                            }
-                            
-                            // 打印完成后停止闪烁并更新状态
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 5.5) {
-                                withAnimation {
-                                    isBlinking = false
-                                    isPrinted = true // 设置为已打印状态
-                                }
+                        // 查找当前正在打印或未打印的收据
+                        if let printingIndex = visibleReceipts.firstIndex(where: { $0.state == .printing }) {
+                            // 如果有收据正在打印，点击打印机会加速打印
+                            speedUpPrinting()
+                        } else if let _ = visibleReceipts.firstIndex(where: { $0.state == .notPrinted }) {
+                            // 如果有未打印的收据，开始打印
+                            startPrinting()
+                        } else if visibleReceipts.allSatisfy({ $0.state == .printed || $0.state == .completed }) {
+                            // 如果所有收据都已打印完成，添加新收据
+                            addNewReceipt()
+                            // 延迟一小段时间后开始打印新收据
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                startPrinting()
                             }
                         }
                     })
@@ -281,142 +366,150 @@ struct ReceiptPrinterView: View {
             // 收据纸张 - 放在最上层
             // 创建一个裁剪区域，只显示出纸口下方的部分
             ZStack(alignment: .top) {
-                // 使用回调函数直接获取 ReceiptPaper 的高度
-                ReceiptPaper(
-                    receiptData: receipts[currentReceiptIndex],
-                    onHeightChanged: { height in
-                        print("收据实际高度: \(height)")
-                        DispatchQueue.main.async {
-                            self.receiptHeight = height
-                            if !isPrinted {
-                                receiptOffset = initialReceiptOffset
+                // 显示所有可见收据
+                ZStack {
+                    ForEach(visibleReceipts) { receipt in
+                        ReceiptPaper(
+                            receiptData: receipt.data,
+                            onHeightChanged: { height in
+                                if receiptHeight == 0 {
+                                    print("收据实际高度: \(height)")
+                                    DispatchQueue.main.async {
+                                        self.receiptHeight = height
+                                        // 初始化所有收据的偏移量
+                                        if visibleReceipts.isEmpty {
+                                            initializeVisibleReceipts()
+                                        }
+                                    }
+                                }
                             }
-                        }
-                    }
-                )
-                .padding(.bottom, 100)
-                .frame(maxWidth: .infinity)
-                .offset(y: receiptOffset + dragOffset)
-                // 添加长按手势
-                .onLongPressGesture(minimumDuration: 0.5) {
-                    if isPrinted {
-                        withAnimation(.spring()) {
-                            showFullReceipt = true
-                        }
-                        mediumSuccess() // 触发震动反馈
-                    }
-                }
-                .gesture(
-                    DragGesture()
-                        .onChanged { gesture in
-                            isDragging = true
-                            // 直接使用拖动的位移量，不限制范围
-                            dragOffset = gesture.translation.height
-                        }
-                        .onEnded { gesture in
-                            isDragging = false
-                            
-                            // 如果向下拖动超过一定距离，设置为已打印状态
-                            if !isPrinted && gesture.translation.height > 150 {
+                        )
+                        .padding(.bottom, 100)
+                        .frame(maxWidth: .infinity)
+                        .offset(y: receipt.totalOffset)
+                        .zIndex(receipt.zIndex)
+                        // 添加长按手势
+                        .onLongPressGesture(minimumDuration: 0.5) {
+                            if receipt.state == .printed {
                                 withAnimation(.spring()) {
-                                    isPrinted = true
-                                    isBlinking = true
-                                    dragOffset = 0
-                                    receiptOffset = 0 // 完全显示收据
+                                    showFullReceipt = true
                                 }
-                                
-                                // 模拟打印完成后的震动和闪烁停止
-                                mediumSuccess()
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                                    withAnimation {
-                                        isBlinking = false
-                                    }
-                                }
+                                mediumSuccess() // 触发震动反馈
                             }
-                            // 如果收据已经打印并且向下拖动超过一定距离，显示下一张收据
-                            else if isPrinted && gesture.translation.height > 150 {
-                                // 切换到下一张收据
-                                let nextIndex = (currentReceiptIndex + 1) % receipts.count
-                                
-                                // 重置状态并准备打印新收据
-                                withAnimation(.easeInOut) {
-                                    // 先收回当前收据
-                                    receiptOffset = initialReceiptOffset
-                                    dragOffset = 0
-                                    isPrinted = false
+                        }
+                        .gesture(
+                            DragGesture()
+                                .onChanged { gesture in
+                                    isDragging = true
+                                    // 找到当前收据的索引
+                                    if let index = visibleReceipts.firstIndex(where: { $0.id == receipt.id }) {
+                                        // 直接使用拖动的位移量，不限制范围
+                                        visibleReceipts[index].dragOffset = gesture.translation.height
+                                        
+                                        // 如果正在打印，暂停打印
+                                        if receipt.state == .printing {
+                                            printingTimer?.invalidate()
+                                            printingTimer = nil
+                                        }
+                                    }
                                 }
-                                
-                                // 切换收据并触发打印
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                                    // 如果已经到了最后一张收据，生成新的收据
-                                    if nextIndex == receipts.count - 1 {
-                                        generateNewReceipt()
-                                    }
+                                .onEnded { gesture in
+                                    isDragging = false
                                     
-                                    currentReceiptIndex = nextIndex
-                                    // 模拟点击打印机头部
-                                    withAnimation {
-                                        isBlinking = true
-                                    }
+                                    // 找到当前收据的索引
+                                    guard let index = visibleReceipts.firstIndex(where: { $0.id == receipt.id }) else { return }
                                     
-                                    // 震动反馈
-                                    simpleSuccess()
-                                    
-                                    // 单一连续动画
-                                    withAnimation(.linear(duration: 5.0)) {
-                                        receiptOffset = 0 // 直接设置最终位置
-                                    }
-                                    
-                                    // 打印过程中的震动效果
-                                    for i in 0..<10 {
-                                        DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.5) {
-                                            if i < 9 {
-                                                if i % 2 == 0 { // 间隔使用不同强度
-                                                    simpleSuccess()
-                                                } else {
+                                    // 根据收据状态和拖动距离处理不同情况
+                                    switch visibleReceipts[index].state {
+                                    case .notPrinted, .printing:
+                                        // 未打印或打印中的收据拖动处理
+                                        let dragDistance = gesture.translation.height
+                                        let halfReceiptHeight = receiptHeight / 2
+                                        
+                                        if dragDistance > halfReceiptHeight {
+                                            // 拖动距离超过收据长度的一半，设置为已打印状态
+                                            withAnimation(.spring()) {
+                                                visibleReceipts[index].state = .printed
+                                                visibleReceipts[index].dragOffset = 0
+                                                visibleReceipts[index].offset = 0 // 完全显示收据
+                                                isBlinking = true
+                                            }
+                                            
+                                            // 模拟打印完成后的震动和闪烁停止
+                                            mediumSuccess()
+                                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                                                withAnimation {
+                                                    isBlinking = false
+                                                }
+                                            }
+                                        } else {
+                                            // 拖动距离不足，返回未打印状态
+                                            withAnimation(.spring()) {
+                                                visibleReceipts[index].state = .notPrinted
+                                                visibleReceipts[index].dragOffset = 0
+                                                visibleReceipts[index].offset = initialReceiptOffset
+                                            }
+                                            simpleSuccess()
+                                        }
+                                        
+                                    case .printed:
+                                        // 已打印收据的拖动处理
+                                        let dragDistance = gesture.translation.height
+                                        let loadNewThreshold = receiptHeight + 120 // 加载新收据的阈值
+                                        
+                                        if dragDistance > loadNewThreshold {
+                                            // 如果拖动距离足够大，加载新收据
+                                            // 查找是否已有第二张收据
+                                            if visibleReceipts.count > 1 {
+                                                let secondReceiptIndex = (index + 1) % visibleReceipts.count
+                                                let secondReceiptDragDistance = dragDistance - loadNewThreshold
+                                                let halfSecondReceiptHeight = receiptHeight / 2
+                                                
+                                                if secondReceiptDragDistance > halfSecondReceiptHeight {
+                                                    // 第二张收据拖动足够，第一张收据完成，第二张变为已打印
+                                                    withAnimation(.spring()) {
+                                                        visibleReceipts[index].state = .completed
+                                                        visibleReceipts[index].dragOffset = 0
+                                                        visibleReceipts[index].offset = -receiptHeight // 移出屏幕
+                                                        
+                                                        visibleReceipts[secondReceiptIndex].state = .printed
+                                                        visibleReceipts[secondReceiptIndex].dragOffset = 0
+                                                        visibleReceipts[secondReceiptIndex].offset = 0
+                                                    }
                                                     mediumSuccess()
+                                                } else {
+                                                    // 第二张收据拖动不足，回弹到第一张已打印状态
+                                                    withAnimation(.spring()) {
+                                                        visibleReceipts[index].dragOffset = 0
+                                                        visibleReceipts[secondReceiptIndex].dragOffset = 0
+                                                    }
+                                                    simpleSuccess()
                                                 }
                                             } else {
-                                                // 结束时较强震动
+                                                // 没有第二张收据，添加新收据
+                                                addNewReceipt()
+                                                withAnimation(.spring()) {
+                                                    visibleReceipts[index].dragOffset = 0
+                                                }
                                                 mediumSuccess()
                                             }
+                                        } else {
+                                            // 拖动距离不足，回弹
+                                            withAnimation(.spring()) {
+                                                visibleReceipts[index].dragOffset = 0
+                                            }
+                                        }
+                                        
+                                    case .completed:
+                                        // 已完成收据不处理拖动
+                                        withAnimation(.spring()) {
+                                            visibleReceipts[index].dragOffset = 0
                                         }
                                     }
-                                    
-                                    // 最后一次震动，打印完成
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
-                                        complexSuccess()
-                                    }
-                                    
-                                    // 打印完成后停止闪烁并更新状态
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 5.5) {
-                                        withAnimation {
-                                            isBlinking = false
-                                            isPrinted = true // 设置为已打印状态
-                                        }
-                                    }
                                 }
-                                
-                                // 触发震动反馈
-                                mediumSuccess()
-                            }
-                            // 如果向上拖动超过一定距离，收回收据
-                            else if isPrinted && gesture.translation.height < -150 {
-                                withAnimation(.spring()) {
-                                    isPrinted = false
-                                    dragOffset = 0
-                                    receiptOffset = initialReceiptOffset // 使用计算的初始位置
-                                }
-                                simpleSuccess()
-                            }
-                            // 其他情况下回弹到当前状态
-                            else {
-                                withAnimation(.spring()) {
-                                    dragOffset = 0
-                                }
-                            }
-                        }
-                )
+                        )
+                    }
+                }
             }
             // .frame(width: 350)
             .clipped()
@@ -432,6 +525,10 @@ struct ReceiptPrinterView: View {
         .frame(maxWidth: 350)
         .onAppear {
             prepareHaptics()
+            // 如果收据高度已知但可见收据列表为空，初始化收据
+            if receiptHeight > 0 && visibleReceipts.isEmpty {
+                initializeVisibleReceipts()
+            }
         }
         .overlay(
             // 调试信息，显示初始偏移量和收据高度
@@ -478,9 +575,17 @@ struct ReceiptPrinterView: View {
                     
                     // 收据内容
                     ScrollView {
-                        ReceiptPaper(receiptData: receipts[currentReceiptIndex], onHeightChanged: nil)
-                            .frame(width: 320)
-                            .padding()
+                        // 显示当前活跃的收据
+                        if let activeReceipt = visibleReceipts.first(where: { $0.state == .printed }) {
+                            ReceiptPaper(receiptData: activeReceipt.data, onHeightChanged: nil)
+                                .frame(width: 320)
+                                .padding()
+                        } else if !visibleReceipts.isEmpty {
+                            // 如果没有已打印的收据，显示第一张收据
+                            ReceiptPaper(receiptData: visibleReceipts[0].data, onHeightChanged: nil)
+                                .frame(width: 320)
+                                .padding()
+                        }
                     }
                     .padding(.bottom)
                 }

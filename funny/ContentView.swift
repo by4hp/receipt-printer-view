@@ -9,15 +9,8 @@ import SwiftUI
 
 struct ContentView: View {
     var body: some View {
-        ZStack {
-            // 背景色 - 浅灰色背景增强打印机的立体感
-            Color.white
-                .ignoresSafeArea()
-            
-            // 打印机收据视图
-            ReceiptPrinterView()
-                .padding()
-        }
+        // 使用MainTabView作为应用的主视图
+        MainTabView()
     }
 }
 
